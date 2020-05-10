@@ -2,8 +2,8 @@ package main
 
 import (
 	"database/sql"
-	_ "github.com/lib/pq"
 	"fmt"
+	_ "github.com/lib/pq"
 	"strconv"
 	"strings"
 )
@@ -13,6 +13,19 @@ const (
 	port = 5432
 	user = "arthred"
 	dbname = "phone_number_serializer"
+)
+
+var (
+	phoneNumbers = []string{
+		"1234567890",
+		"123 456 7891",
+		"(123) 456 7892",
+		"(123) 456-7893",
+		"123-456-7894",
+		"123-456-7890",
+		"1234567892",
+		"(123)456-7892",
+	}
 )
 
 func main() {
@@ -43,11 +56,59 @@ func main() {
 		fmt.Println(err)
 	}
 
-	id, err := insertPhoneNumber(db, "1234567890")
-	if err != nil {
-		fmt.Println(err)
+	for _, number := range phoneNumbers {
+		_, err = insertPhoneNumber(db, number)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
-	fmt.Printf("ID=%d", id)
+
+	phones, _ := allPhoneNumbers(db)
+	for _, n := range phones {
+		fmt.Printf("Working on...%+v\n", n)
+		number := normalize(n.number)
+		if number != n.number {
+			fmt.Println("Updating or removing...", number)
+		} else {
+			fmt.Println("No changes required")
+		}
+	}
+}
+
+func getPhoneNumber(db *sql.DB, id int) (string, error) {
+	var number string
+	err := db.QueryRow("SELECT value FROM phone_numbers WHERE id=$1", id).Scan(&number)
+	if err != nil {
+		return "", err
+	}
+	return number, nil
+}
+
+type phone struct{
+	id 		int
+	number 	string
+}
+
+func allPhoneNumbers(db *sql.DB) ([]phone, error){
+	rows, err := db.Query("SELECT id, value FROM phone_numbers")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ret []phone
+	for rows.Next() {
+		var p phone
+		if err := rows.Scan(&p.id, &p.number); err != nil {
+			return nil, err
+		}
+		ret = append(ret, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return ret, nil
 }
 
 func insertPhoneNumber(db *sql.DB, phoneNumber string) (int, error) {
