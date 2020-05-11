@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Phone-Number-Serializer/database"
 	"database/sql"
 	"fmt"
 	_ "github.com/lib/pq"
@@ -30,18 +31,12 @@ var (
 
 func main() {
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s sslmode=disable", host, port, user)
-	db, err := sql.Open("postgres", psqlInfo)
+	err := database.Reset("postgres", psqlInfo, dbname)
 	if err != nil {
 		fmt.Println(err)
 	}
-	err = resetDB(db, dbname)
-	if err != nil {
-		fmt.Println(err)
-	}
-	db.Close()
-
 	psqlInfo = fmt.Sprintf("%s dbname=%s", psqlInfo, dbname)
-	db, err = sql.Open("postgres", psqlInfo)
+	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -69,6 +64,22 @@ func main() {
 		number := normalize(n.number)
 		if number != n.number {
 			fmt.Println("Updating or removing...", number)
+			existing, err := findPhoneNumber(db, number)
+			if err != nil {
+				fmt.Println(err)
+			}
+			if existing != nil {
+				err := deleteRow(db, n.id)
+				if err != nil {
+					fmt.Println(err)
+				}
+			} else {
+				n.number = number
+				err := updateRow(db, n)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}
 		} else {
 			fmt.Println("No changes required")
 		}
@@ -87,6 +98,33 @@ func getPhoneNumber(db *sql.DB, id int) (string, error) {
 type phone struct{
 	id 		int
 	number 	string
+}
+
+func findPhoneNumber(db *sql.DB, number string) (*phone, error) {
+	var p phone
+	err := db.QueryRow("SELECT * FROM phone_numbers WHERE value=$1", number).Scan(&p.id, &p.number)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		} else {
+			return nil, err
+		}
+	}
+	return &p, nil
+}
+
+func updateRow(db *sql.DB, p phone) error {
+	statement := `UPDATE phone_numbers SET value=$2 WHERE id=$1`
+	_, err := db.Exec(statement, p.id, p.number)
+
+	return err
+}
+
+func deleteRow(db *sql.DB, id int) error {
+	statement := `DELETE FROM phone_numbers WHERE id=$1`
+	_, err := db.Exec(statement, id)
+
+	return err
 }
 
 func allPhoneNumbers(db *sql.DB) ([]phone, error){
@@ -131,22 +169,6 @@ func createPhoneNumbersTable(db *sql.DB) error {
 	return err
 }
 
-func createDB(db *sql.DB, name string) error {
-	_, err := db.Exec("CREATE DATABASE " + name)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func resetDB(db *sql.DB, name string) error {
-	_, err := db.Exec("DROP DATABASE IF EXISTS " + name)
-	if err != nil {
-		return err
-	}
-
-	return createDB(db, name)
-}
 func normalize(phoneNumber string) string {
 	var sb strings.Builder
 
